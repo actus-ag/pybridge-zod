@@ -1,3 +1,5 @@
 dist
 !dist/esm/package.json
 !dist/esm/.gitkeep
+node_modules
+__pycache__

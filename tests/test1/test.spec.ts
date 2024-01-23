@@ -1,63 +1,35 @@
-import { App } from "@deepkit/app";
+import { z } from "zod";
 import { PyBridge } from "../../src/bridge";
-import { PyBridgeModule } from "../../src/module";
-import { Subject } from "rxjs";
 
-test('script', async () => {
-    const bridge = new PyBridge({ python: 'python3', cwd: __dirname });
+test("script", async () => {
+  const bridge = new PyBridge({ python: "python3", cwd: __dirname });
 
-    interface API {
-        word_sizes(words: string[]): number[];
+  const schema = z.object({
+    word_sizes: z.function(z.tuple([z.array(z.string())]), z.array(z.number())),
+  });
 
-        stream(): Subject<{ type: 'loading' } | { type: 'loaded' }>;
-    }
+  const api = bridge.controller("script.py", schema);
+  const sizes = await api.word_sizes(["hello", "world"]);
+  expect(sizes).toEqual([5, 5]);
 
-    const api = bridge.controller<API>('script.py');
-    const sizes = await api.word_sizes(['hello', 'world']);
-    expect(sizes).toEqual([5, 5]);
-
-    const stream = api.stream();
-    const values: any[] = [];
-    stream.subscribe(v => values.push(v));
-    await stream.toPromise();
-    expect(values).toEqual([{ type: 'loading' }, { type: 'loaded' }]);
-
-    bridge.close();
+  bridge.close();
 });
 
-test('app', async () => {
-    const app = new App({
-        imports: [new PyBridgeModule({
-            python: 'python3',
-            cwd: __dirname,
-        })]
-    }).command('test', async (python: PyBridge) => {
-        interface API {
-            word_sizes(words: string[]): number[];
-        }
+test("script code", async () => {
+  const bridge = new PyBridge({ python: "python3", cwd: __dirname });
 
-        const controller = python.controller<API>('script.py');
-        const sizes = await controller.word_sizes(['hello', 'world']);
-        expect(sizes).toEqual([5, 5]);
-    });
+  const schema = z.object({
+    embed: z.function(z.tuple([z.string()]), z.array(z.number())),
+  });
 
-    await app.run(['test']);
-});
-
-test('script code', async () => {
-    const bridge = new PyBridge({ python: 'python3', cwd: __dirname });
-
-    interface API {
-        embed(text: string): number[];
-    }
-
-    const code = `
+  const code = `
 def embed(text):
     return [len(text)]
     `;
 
-    const api = bridge.controller<API>(code);
+  const api = bridge.controller(code, schema);
 
-    const result = await api.embed('hello');
-    expect(result).toEqual([5]);
+  const result = await api.embed("hello");
+  expect(result).toEqual([5]);
+  bridge.close();
 });

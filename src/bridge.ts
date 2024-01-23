@@ -1,21 +1,20 @@
 import { ChildProcess, spawn } from "child_process";
 import { isAbsolute, join } from "path";
-import { findParentPath } from "@deepkit/app";
-import { ConsoleTransport, Logger } from "@deepkit/logger";
-import { deserializeFunction, ReceiveType, ReflectionClass, ReflectionKind, resolveReceiveType, Type, TypeClass } from "@deepkit/type";
 import { Subject } from "rxjs";
 import { PyBridgeConfig } from "./config";
+import { z } from "zod";
+import { findParentPath } from "./fsUtils";
 
 interface RpcMessage {
-    id: number;
-    ready?: true;
-    result?: any;
-    yield?: any;
-    error?: string;
+  id: number;
+  ready?: true;
+  result?: any;
+  yield?: any;
+  error?: string;
 }
 
 function fromCode(code: string): string {
-    return `
+  return `
 import sys
 import types
 
@@ -66,137 +65,157 @@ except KeyboardInterrupt:
     sys.exit(0)
 `;
 
-function isSubjectType(type: Type): type is TypeClass & { typeArguments: [Type] } {
-    return Boolean(type.kind === ReflectionKind.class && type.classType === Subject && type.typeArguments);
-}
-
 export class Controller {
-    process: ChildProcess;
-    messageId: number = 0;
-    subscribers: { [messageId: number]: (data: RpcMessage) => void } = {};
+  process: ChildProcess;
+  messageId: number = 0;
+  subscribers: { [messageId: number]: (data: RpcMessage) => void } = {};
 
-    constructor(moduleNameOrCode: string, config: PyBridgeConfig, logger: Logger) {
-        let python = config.python;
+  constructor(
+    moduleNameOrCode: string,
+    config: PyBridgeConfig,
+    logger: (message: string) => void
+  ) {
+    let python = config.python;
 
-        if (!isAbsolute(python)) {
-            const venvBin = findParentPath('venv/bin');
-            if (venvBin) {
-                python = join(venvBin, python);
-            }
-        }
-
-        let cwd = config.cwd;
-
-        logger.log(`Start python via ${python} in ${cwd} for ${moduleNameOrCode.replace(/\n/g, '\\n').substring(0, 50)}`);
-
-        let load = moduleNameOrCode.includes(' ') ? fromCode(moduleNameOrCode) : `import ${moduleNameOrCode} as module;`;
-        if (moduleNameOrCode.endsWith('.py')) {
-            load = `import sys; sys.path.append('${cwd}'); import ${moduleNameOrCode.replace('.py', '')} as module;`;
-        }
-
-        const code = hook.replace('{{__load__}}', load);
-        // console.log(code);
-        this.process = spawn(python, ['-c', code], {
-            stdio: ['pipe', 'pipe', process.stderr],
-            cwd: cwd,
-        });
-
-        process.on('exit', () => {
-            this.process.kill();
-        });
-
-        const buffer: Buffer[] = [];
-        const read = (data: Buffer) => {
-            buffer.push(data);
-            // console.log('read', data.includes('\n'), Buffer.concat(buffer).toString('utf8'));
-            if (data.includes('\n'.charCodeAt(0))) {
-                const messages = Buffer.concat(buffer).toString('utf8').trim().split('\n');
-                for (const message of messages) {
-                    if (!message.startsWith('{"')) continue;
-                    try {
-                        const res = JSON.parse(message);
-                        const messageId = res.id;
-                        if (this.subscribers[messageId]) {
-                            this.subscribers[messageId](res);
-                        }
-                    } catch (error) {
-                        console.warn('Could not parse: ' + message);
-                    }
-                }
-                buffer.length = 0;
-            }
-        }
-
-        this.process.stdout!.on('data', read);
+    if (!isAbsolute(python)) {
+      const venvBin = findParentPath("venv/bin");
+      if (venvBin) {
+        python = join(venvBin, python);
+      }
     }
 
-    send<T>(method: string, args: any[], type?: ReceiveType<T>): Subject<T> {
-        const messageId = this.messageId++;
+    let cwd = config.cwd;
 
-        type = resolveReceiveType(type);
-        if (isSubjectType(type)) {
-            type = type.typeArguments[0];
-        }
-        const subject = new Subject<any>();
-        const deserializer = deserializeFunction(undefined, undefined, undefined, type);
+    logger(
+      `Start python via ${python} in ${cwd} for ${moduleNameOrCode
+        .replace(/\n/g, "\\n")
+        .substring(0, 50)}`
+    );
 
-        this.subscribers[messageId] = (data) => {
-            try {
-                if (data.ready) {
-
-                } else if (data.yield) {
-                    const v = deserializer(data.yield);
-                    subject.next(v);
-                } else if (data.error) {
-                    delete this.subscribers[messageId];
-                    subject.error(new Error(data.error));
-                } else {
-                    delete this.subscribers[messageId];
-                    subject.complete();
-                }
-            } catch {
-            }
-        };
-        this.process.stdin!.write(JSON.stringify({ id: messageId, method, args }) + '\n');
-
-        return subject;
+    let load = moduleNameOrCode.includes(" ")
+      ? fromCode(moduleNameOrCode)
+      : `import ${moduleNameOrCode} as module;`;
+    if (moduleNameOrCode.endsWith(".py")) {
+      load = `import sys; sys.path.append('${cwd}'); import ${moduleNameOrCode.replace(
+        ".py",
+        ""
+      )} as module;`;
     }
+
+    const code = hook.replace("{{__load__}}", load);
+    // console.log(code);
+    this.process = spawn(python, ["-c", code], {
+      stdio: ["pipe", "pipe", process.stderr],
+      cwd: cwd,
+    });
+
+    process.on("exit", () => {
+      this.process.kill();
+    });
+
+    const buffer: Buffer[] = [];
+    const read = (data: Buffer) => {
+      buffer.push(data);
+      // console.log('read', data.includes('\n'), Buffer.concat(buffer).toString('utf8'));
+      if (data.includes("\n".charCodeAt(0))) {
+        const messages = Buffer.concat(buffer)
+          .toString("utf8")
+          .trim()
+          .split("\n");
+        for (const message of messages) {
+          if (!message.startsWith('{"')) continue;
+          try {
+            const res = JSON.parse(message);
+            const messageId = res.id;
+            if (this.subscribers[messageId]) {
+              this.subscribers[messageId](res);
+            }
+          } catch (error) {
+            console.warn("Could not parse: " + message);
+          }
+        }
+        buffer.length = 0;
+      }
+    };
+
+    this.process.stdout!.on("data", read);
+  }
+
+  send<T>(method: string, args: any[], schema: z.ZodSchema<any>): Subject<T> {
+    const messageId = this.messageId++;
+
+    const subject = new Subject<any>();
+
+    this.subscribers[messageId] = (data) => {
+      try {
+        if (data.ready) {
+        } else if (data.yield) {
+          const v = schema.parse(data.yield);
+          subject.next(v);
+        } else if (data.error) {
+          delete this.subscribers[messageId];
+          subject.error(new Error(data.error));
+        } else {
+          delete this.subscribers[messageId];
+          subject.complete();
+        }
+      } catch {}
+    };
+    this.process.stdin!.write(
+      JSON.stringify({ id: messageId, method, args }) + "\n"
+    );
+
+    return subject;
+  }
 }
 
-type PromisifyFn<T extends ((...args: any[]) => any)> = (...args: Parameters<T>) => ReturnType<T> extends Subject<infer R> ? ReturnType<T> : ReturnType<T> extends Promise<any> ? ReturnType<T> : Promise<ReturnType<T>>;
+type PromisifyFn<T extends (...args: any[]) => any> = (
+  ...args: Parameters<T>
+) => ReturnType<T> extends Subject<infer R>
+  ? ReturnType<T>
+  : ReturnType<T> extends Promise<any>
+  ? ReturnType<T>
+  : Promise<ReturnType<T>>;
 export type RemoteController<T> = {
-    [P in keyof T]: T[P] extends (...args: any[]) => any ? PromisifyFn<T[P]> : never
+  [P in keyof T]: T[P] extends (...args: any[]) => any
+    ? PromisifyFn<T[P]>
+    : never;
 };
 
 export class PyBridge {
-    protected controllers: { [name: string]: any } = {};
+  protected controllers: { [name: string]: any } = {};
 
-    constructor(protected config: PyBridgeConfig, protected logger: Logger = new Logger([new ConsoleTransport()])) {
+  constructor(
+    protected config: PyBridgeConfig,
+    protected logger: (message: string) => void = console.log
+  ) {}
+
+  close() {
+    for (const controller of Object.values(this.controllers)) {
+      controller.process.kill();
     }
+  }
 
-    close() {
-        for (const controller of Object.values(this.controllers)) {
-            controller.process.kill();
-        }
-    }
+  controller<
+    T extends z.ZodObject<{ [name: string]: z.ZodFunction<any, any> }>
+  >(moduleName: string, schema: T): RemoteController<z.infer<T>> {
+    if (this.controllers[moduleName]) return this.controllers[moduleName];
+    const controller = new Controller(moduleName, this.config, this.logger);
+    z.instanceof(Subject);
 
-    controller<T extends {}>(moduleName: string, type?: ReceiveType<T>): RemoteController<T> {
-        if (this.controllers[moduleName]) return this.controllers[moduleName];
-        const controller = new Controller(moduleName, this.config, this.logger);
-        if (!type) throw new Error('No controller type T given');
+    return (this.controllers[moduleName] = new Proxy(
+      {},
+      {
+        get: (target, name: string) => {
+          if (name === "process") return controller.process;
 
-        const reflectionClass = ReflectionClass.from(resolveReceiveType(type));
-
-        return this.controllers[moduleName] = new Proxy({}, {
-            get: (target, name: string) => {
-                if (name === 'process') return controller.process;
-
-                return (...args: any[]) => {
-                    const returnType = reflectionClass.getMethod(name).getReturnType();
-                    const subject = controller.send(name, args, returnType);
-                    return isSubjectType(returnType) ? subject : subject.toPromise();
-                }
-            }
-        }) as any;
-    }
+          return (...args: any[]) => {
+            const returnType = schema.shape[name].returnType();
+            const subject = controller.send(name, args, returnType);
+            return subject.toPromise();
+          };
+        },
+      }
+    ) as any);
+  }
 }
