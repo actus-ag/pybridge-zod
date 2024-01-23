@@ -4,12 +4,7 @@ A TypeScript library to access your python functions in NodeJS, type-safe and ea
 
 This is especially useful if you want to use machine learning models in NodeJS.
 
-## Features
-
-- Supports all TypeScript types (including generics)
-- Supports generator functions in Python (streaming with RxJS)
-- Python modules and scripts
-- Automatically serializes and deserializes data between NodeJS and Python
+Forked from the original PyBridge because it gives me too many TS compiler errors.
 
 ## Use-cases
 
@@ -165,27 +160,8 @@ npm install pybridge
 
 Then install Deepkit (needed for type-safe data serialization between NodeJS and Python):
 
-```shell
-npm install --save-dev @deepkit/type-compiler
-```
-
-Enable Deepkit runtime type reflection:
-
-File: tsconfig.json
-
-```json
-{
-  "compilerOptions": {
-    // ...
-  },
-  "reflection": true
-}
-```
-
 ## How it works
 
 PyBridge starts a Python process and communicates with it via stdin/stdout.
-It uses [Deepkit](https://deepkit.io) to serialize data between the two processes. 
 
-It's important to type the API controller in TypeScript correctly, so Deepkit can serialize and deserialize the data
-correctly. Make sure it matches the Python function signature.
+It uses zod to serialize data between the two processes. 
