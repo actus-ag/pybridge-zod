@@ -201,8 +201,6 @@ export class PyBridge {
   >(moduleName: string, schema: T): RemoteController<z.infer<T>> {
     if (this.controllers[moduleName]) return this.controllers[moduleName];
     const controller = new Controller(moduleName, this.config, this.logger);
-    z.instanceof(Subject);
-
     return (this.controllers[moduleName] = new Proxy(
       {},
       {
