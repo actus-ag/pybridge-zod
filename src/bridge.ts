@@ -149,7 +149,7 @@ export class Controller {
     this.subscribers[messageId] = (data) => {
       try {
         if (data.ready) {
-        } else if (data.yield) {
+        } else if (data.yield !== undefined) {
           const v = schema.parse(data.yield);
           subject.next(v);
         } else if (data.error) {
